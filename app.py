@@ -13,13 +13,17 @@ if uploaded_file is not None:
 
         def calculate_share(row):
             # STRICT LOGIC: Fee theke Discount bad diye Net Calculation
-            net_val = float(row.get('Fee', 0)) - float(row.get('Discount', 0))
+            # 'Net Amount' column use na kore manually 'Fee' - 'Discount' kora hochhe
+            fee = float(row.get('Fee', 0)) if pd.notna(row.get('Fee')) else 0
+            discount = float(row.get('Discount', 0)) if pd.notna(row.get('Discount')) else 0
+            
+            net_val = fee - discount
             name = str(row.get('Doctor Name', '')).upper()
             
             # Dr. Soumya 85%, Baki shobai 80%
             percentage = 0.85 if "SOUMYA" in name else 0.80
             
-            # Rounding to 0 decimal to match manual manual calculation
+            # Rounding to 0 decimal to match manual calculation
             return round(net_val * percentage)
 
         df['Doctor_Payable'] = df.apply(calculate_share, axis=1)
@@ -34,6 +38,7 @@ if uploaded_file is not None:
         df['Group'] = df['Doctor Name'].apply(lambda x: "MARCH ENT" if str(x).upper() in march_ent_list else x)
         
         summary = df.groupby('Group')['Doctor_Payable'].sum().reset_index()
+        summary.columns = ['Doctor/Group Name', 'Payable Amount']
         st.table(summary)
 
     except Exception as e:
