@@ -8,38 +8,42 @@ uploaded_file = st.file_uploader("Upload Updated File", type=['csv', 'xlsx'])
 
 if uploaded_file is not None:
     try:
-        df = pd.read_csv(uploaded_file) if uploaded_file.name.endswith('.csv') else pd.read_excel(uploaded_file)
+        # File reading
+        if uploaded_file.name.endswith('.csv'):
+            df = pd.read_csv(uploaded_file)
+        else:
+            df = pd.read_excel(uploaded_file)
+            
         df.columns = df.columns.str.strip()
 
-        def calculate_share(row):
-            # STRICT LOGIC: Fee theke Discount bad diye Net Calculation
-            # 'Net Amount' column use na kore manually 'Fee' - 'Discount' kora hochhe
-            fee = float(row.get('Fee', 0)) if pd.notna(row.get('Fee')) else 0
-            discount = float(row.get('Discount', 0)) if pd.notna(row.get('Discount')) else 0
-            
-            net_val = fee - discount
-            name = str(row.get('Doctor Name', '')).upper()
-            
-            # Dr. Soumya 85%, Baki shobai 80%
-            percentage = 0.85 if "SOUMYA" in name else 0.80
-            
-            # Rounding to 0 decimal to match manual calculation
-            return round(net_val * percentage)
+        # Ebar amra group wise total ber korbo exact Excel logic-e
+        # 1. Dr. Soumya Chatterjee Logic
+        soumya_data = df[df['Doctor Name'].str.contains("SOUMYA", case=False, na=False)]
+        soumya_net = soumya_data['Fee'].sum() - soumya_data['Discount'].sum()
+        soumya_share = soumya_net * 0.85
 
-        df['Doctor_Payable'] = df.apply(calculate_share, axis=1)
-        
-        total_payment = df['Doctor_Payable'].sum()
-        
+        # 2. Baki shobai (March ENT + Others) Logic
+        others_data = df[~df['Doctor Name'].str.contains("SOUMYA", case=False, na=False)]
+        others_net = others_data['Fee'].sum() - others_data['Discount'].sum()
+        others_share = others_net * 0.80
+
+        # Grand Total
+        grand_total_doc = soumya_share + others_share
+
+        # Display Metrics
         st.success("File Processed!")
-        st.metric("Total Doctor's Share", f"₹{total_payment:,}")
-
-        # Group Summary
-        march_ent_list = ['DR. ARJUN DASGUPTA', 'DR. CHIRAJIT DUTTA', 'DR. NVK MOHAN']
-        df['Group'] = df['Doctor Name'].apply(lambda x: "MARCH ENT" if str(x).upper() in march_ent_list else x)
+        col1, col2 = st.columns(2)
+        col1.metric("Total Doctor's Share", f"₹{grand_total_doc:,.2f}")
         
-        summary = df.groupby('Group')['Doctor_Payable'].sum().reset_index()
-        summary.columns = ['Doctor/Group Name', 'Payable Amount']
-        st.table(summary)
+        # Breakdown Table
+        summary_data = {
+            "Doctor Group": ["Dr. Soumya Chatterjee (85%)", "Other Doctors (80%)"],
+            "Total Fee": [soumya_data['Fee'].sum(), others_data['Fee'].sum()],
+            "Total Discount": [soumya_data['Discount'].sum(), others_data['Discount'].sum()],
+            "Payable Share": [soumya_share, others_share]
+        }
+        summary_df = pd.DataFrame(summary_data)
+        st.table(summary_df)
 
     except Exception as e:
         st.error(f"Error: {e}")
