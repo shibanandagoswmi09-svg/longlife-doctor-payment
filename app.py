@@ -2,10 +2,11 @@ import streamlit as st
 import pandas as pd
 import io
 
+# ---------------- PAGE SETUP ----------------
 st.set_page_config(page_title="Doctor Payment Dashboard", layout="wide")
 st.title("🏥 Longlife Clinic - Doctor Payment Module")
 
-uploaded_file = st.file_uploader("Upload File", type=['csv', 'xlsx'])
+uploaded_file = st.file_uploader("📂 Upload File (Excel/CSV)", type=['csv', 'xlsx'])
 
 if uploaded_file:
 
@@ -17,8 +18,7 @@ if uploaded_file:
 
     # Clean columns
     df.columns = df.columns.str.strip().str.upper()
-
-    st.write("Columns detected:", df.columns)
+    st.write("✅ Columns detected:", df.columns)
 
     # ---------------- SAFE FLOAT ----------------
     def safe_float(val):
@@ -33,27 +33,32 @@ if uploaded_file:
         fee = safe_float(row.get('FEE'))
         discount = safe_float(row.get('DISCOUNT'))
         reg_fee = safe_float(row.get('REG FEE'))
-
-        # ✅ IMPORTANT: Use NET AMOUNT FIRST (matches real billing)
         net = safe_float(row.get('NET AMOUNT'))
 
-        # fallback if missing
+        # Fallback if Net missing
         if net == 0:
             net = fee - discount
+
+        # ✅ FIX: Remove Reg Fee from Net (avoid double count)
+        base_amount = net - reg_fee
+
+        # Safety check
+        if base_amount <= 0:
+            base_amount = net
 
         # Clean doctor name
         name = str(row.get('DOCTOR NAME', '')).upper().replace('.', '').strip()
 
-        # ✅ Doctor Share Rule
+        # Doctor share logic
         if "SOUMYA CHATTERJEE" in name:
-            doc_share = net * 0.85
+            doc_share = base_amount * 0.85
         else:
-            doc_share = net * 0.80
+            doc_share = base_amount * 0.80
 
-        # ✅ Clinic Share Rule
-        clinic_share = (net - doc_share) + reg_fee
+        # Clinic share
+        clinic_share = (base_amount - doc_share) + reg_fee
 
-        # ✅ IMPORTANT: ROUNDING (to match Excel)
+        # Rounding (important)
         doc_share = round(doc_share, 0)
         clinic_share = round(clinic_share, 0)
 
@@ -68,12 +73,11 @@ if uploaded_file:
 
     st.markdown("## 📊 Summary")
     col1, col2 = st.columns(2)
-
-    col1.metric("💰 Doctor Payment", f"₹{total_doc:,.0f}")
-    col2.metric("🏥 Clinic Share", f"₹{total_clinic:,.0f}")
+    col1.metric("💰 Total Doctor Payment", f"₹{total_doc:,.0f}")
+    col2.metric("🏥 Total Clinic Share", f"₹{total_clinic:,.0f}")
 
     # ---------------- DOCTOR SUMMARY ----------------
-    st.markdown("## 👨‍⚕️ Doctor Wise Payment")
+    st.markdown("## 👨‍⚕️ Doctor-wise Payment")
 
     summary = df.groupby('DOCTOR NAME').agg({
         'DOC_SHARE': 'sum',
@@ -84,7 +88,7 @@ if uploaded_file:
 
     st.dataframe(summary)
 
-    # ---------------- ERROR CHECK (VERY IMPORTANT) ----------------
+    # ---------------- AUDIT CHECK ----------------
     st.markdown("## 🧠 Audit Check")
 
     df['EXPECTED_NET'] = df['FEE'] - df['DISCOUNT']
@@ -93,12 +97,14 @@ if uploaded_file:
     mismatch = df[df['DIFF'] != 0]
 
     if not mismatch.empty:
-        st.warning("⚠️ Some rows have mismatch between Net Amount and Fee-Discount")
-        st.dataframe(mismatch[['DOCTOR NAME', 'FEE', 'DISCOUNT', 'NET AMOUNT', 'DIFF']])
+        st.warning("⚠️ Some rows have mismatch (Net Amount vs Fee-Discount)")
+        st.dataframe(mismatch[['DOCTOR NAME', 'FEE', 'DISCOUNT', 'REG FEE', 'NET AMOUNT', 'DIFF']])
     else:
-        st.success("✅ No mismatch found. Data is consistent.")
+        st.success("✅ Data is consistent")
 
-    # ---------------- DOWNLOAD ----------------
+    # ---------------- DOWNLOAD EXCEL ----------------
+    st.markdown("## 📥 Download Report")
+
     output = io.BytesIO()
     writer = pd.ExcelWriter(output, engine='xlsxwriter')
 
@@ -108,7 +114,7 @@ if uploaded_file:
     writer.close()
 
     st.download_button(
-        label="⬇️ Download Report",
+        label="⬇️ Download Excel Report",
         data=output.getvalue(),
         file_name="Doctor_Payment_Report.xlsx",
         mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
